@@ -5,7 +5,7 @@ import imap_tools
 from imap_tools import MailBox, A
 import configparser
 import time
-from bs4 import BeautifulSoup, Tag, NavigableString
+from bs4 import BeautifulSoup
 
 config = configparser.ConfigParser()
 config.sections()
@@ -17,6 +17,8 @@ min_size = int(int(config['DEFAULT']['min_size_MB']) * 1e6)
 email_age_days = int(config['DEFAULT']['email_age_days'])
 standard_folder = config['DEFAULT']['standard_folder']
 test_mode = distutils.util.strtobool(config['DEFAULT']['test_mode'])
+move_to_trash = distutils.util.strtobool(config['DEFAULT']['move_to_trash'])
+ask_confirmation = distutils.util.strtobool(config['DEFAULT']['ask_confirmation'])
 server = config['mailserver']['server']
 user = config['mailserver']['user']
 password = config['mailserver']['password']
@@ -29,6 +31,7 @@ tic = time.time()
 with MailBox(server).login(user, password) as mailbox:
     folder_list = mailbox.folder.list()
     mailbox.folder.set(standard_folder.replace('"', ''))
+    #print(folder_list)
     # msg_uids = mailbox.uids(A(size_gt=min_size, date_lt=max_date))
     progress = 0
     processed = 1
@@ -41,12 +44,13 @@ with MailBox(server).login(user, password) as mailbox:
             progress += 1
             print("Progress: ", progress, ", Time: ", int(time.time() - tic), ", UID: ", msg.uid, ", Sbj:", msg.subject, "; Date: ", msg.date, "; Size: {:.2f}MB".format(msg.size_rfc822 / 1e6))
             if not test_mode:
-                new_message = email.message.EmailMessage()
-                new_message["From"] = msg.from_
-                new_message["To"] = msg.to
-                new_message["Cc"] = msg.cc
-                new_message["Bcc"] = msg.bcc
-                new_message["Subject"] = msg.subject.replace('\r\n', '')
+                if move_to_trash:
+                    new_message = email.message.EmailMessage()
+                    new_message["From"] = msg.from_
+                    new_message["To"] = msg.to
+                    new_message["Cc"] = msg.cc
+                    new_message["Bcc"] = msg.bcc
+                    new_message["Subject"] = msg.subject.replace('\r\n', '')
                 Str = "This message contained followed attachments that have been stripped out:\r\n"
                 for att in msg.attachments:
                     Str += "F: " + att.filename + "; S: " + str(att.size) + "B\r\n"
@@ -59,11 +63,29 @@ with MailBox(server).login(user, password) as mailbox:
                         MsgText = soup.get_text()
                 else:
                     MsgText = msg.text
-                new_message.set_payload(Str + MsgText)
-                new_message.set_charset(email.charset.Charset("utf-8"))
-                encoded_message = str(new_message).encode("utf-8")
-                mailbox.client.append(standard_folder, imap_tools.MailMessageFlags.SEEN, msg.date, encoded_message)
-                mailbox.move(msg.uid, '[Gmail]/Bin')
+
+                print("About to move or delete ", int(time.time() - tic), ", UID: ", msg.uid, ", Sbj:",msg.subject, "; Date: ", msg.date, "; Size: {:.2f}MB".format(msg.size_rfc822 / 1e6))
+
+                if ask_confirmation:
+                    while True:
+                        try:
+                            confirmation = input("Are you sure ? [y/n] : ")
+                            break
+                        except ValueError:
+                            print("Enter a letter pls")
+
+                    if confirmation == 'n':
+                        break
+
+                if move_to_trash:
+                    new_message.set_payload(Str + MsgText)
+                    new_message.set_charset(email.charset.Charset("utf-8"))
+                    encoded_message = str(new_message).encode("utf-8")
+                    mailbox.client.append(standard_folder, imap_tools.MailMessageFlags.SEEN, msg.date, encoded_message)
+                    mailbox.move(msg.uid, 'INBOX.INBOX.Trash')
+                else:
+                    mailbox.delete(msg.uid)
+
         if not processed and multiplier > 1:
             multiplier = int(multiplier/2)
             processed = 1

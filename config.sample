@@ -2,7 +2,9 @@
 test_mode = True
 email_age_days = 730
 min_size_MB = 5
-standard_folder = INBOX
+move_to_trash = False
+ask_confirmation = True
+standard_folder = INBOX.INBOX.Trash
 otherFolderRenameThis = "[Gmail]/Sent Mail"
 
 [mailserver]
